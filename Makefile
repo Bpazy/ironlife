@@ -2,7 +2,7 @@ NAME=ironlife
 BINDIR=bin
 VERSION=$(shell git describe --tags || echo "unknownversion")
 GOBUILD=CGO_ENABLED=0 go build
-CMDPATH=./cmd/ironlife
+CMDPATH=./cmd/test
 
 all: linux-amd64 darwin-amd64 freebsd-amd64 windows-amd64 # Most used
 

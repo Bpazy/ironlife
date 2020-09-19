@@ -2,23 +2,16 @@ package main
 
 import (
 	"encoding/json"
-	"github.com/c-bata/go-prompt"
 	"github.com/go-resty/resty/v2"
 	"github.com/spf13/viper"
 	"gopkg.in/alecthomas/kingpin.v2"
-	cookiejar "ironlife"
+	"ironlife"
 	"log"
 	"net/http"
 	"os"
 	"regexp"
 	"strconv"
 	"time"
-)
-
-const (
-	usernameConfigKey = "username"
-	passwordConfigKey = "password"
-	baseUrlConfigKey  = "baseUrl"
 )
 
 var (
@@ -32,12 +25,11 @@ func init() {
 func main() {
 	username, password := initConfig()
 
-	client := initRestyClient()
-	login(client, username, password)
+	ironlife.Login(username, password)
 
 	log.Println("初始化完毕，开始 30s 轮训")
 	for {
-		queryAndApprove(client)
+		queryAndApprove(ironlife.RestyClient)
 		time.Sleep(30 * time.Second)
 	}
 }
@@ -50,7 +42,7 @@ func queryAndApprove(client *resty.Client) {
 			"offset": "0",
 			"search": "",
 		}).
-		Post(getBaseUrl() + "/query/applylist/")
+		Post(ironlife.GetBaseUrl() + "/query/applylist/")
 	if err != nil {
 		log.Fatalf("查询权限管理列表失败：%+v", err)
 	}
@@ -61,9 +53,9 @@ func queryAndApprove(client *resty.Client) {
 	err = json.Unmarshal(queryListRsp.Body(), &applyListResult)
 	if err != nil {
 		if debug {
-			log.Println("username: " + viper.GetString(usernameConfigKey))
-			log.Println("password: " + viper.GetString(passwordConfigKey))
-			log.Println("baseUrl: " + viper.GetString(baseUrlConfigKey))
+			log.Println("username: " + viper.GetString(ironlife.UsernameConfigKey))
+			log.Println("password: " + viper.GetString(ironlife.PasswordConfigKey))
+			log.Println("baseUrl: " + viper.GetString(ironlife.BaseUrlConfigKey))
 		}
 		log.Fatalf("权限管理列表接口返回值转为 Json 失败，请检查用户名密码是否正确: %+v, body: \n%s", err, queryListRsp.String())
 	}
@@ -79,7 +71,7 @@ func queryAndApprove(client *resty.Client) {
 		if row.LimitNum <= 100 && isApplyLessThan7Day && row.Status == 0 {
 			applyId := strconv.Itoa(row.ApplyID)
 			// 通过审批
-			csrfRsp, err := client.R().Get(getBaseUrl() + "/queryapplydetail/" + applyId)
+			csrfRsp, err := client.R().Get(ironlife.GetBaseUrl() + "/queryapplydetail/" + applyId)
 			if err != nil {
 				log.Printf("获取审批详情页中的csrfmiddlewaretoken失败，跳过此工单，err: %+v\n", err)
 				continue
@@ -96,46 +88,10 @@ func queryAndApprove(client *resty.Client) {
 					"apply_id":            applyId,
 					"audit_status":        "1", // 通过是1，终止是2
 				}).
-				Post(getBaseUrl() + "/query/privaudit/")
+				Post(ironlife.GetBaseUrl() + "/query/privaudit/")
 			log.Printf("%s(%s) 审批通过\n", row.Title, row.UserDisplay)
 		}
 	}
-}
-
-func login(client *resty.Client, username string, password string) {
-	// 获取基础 Cookie
-	_, _ = client.R().Get(getBaseUrl() + "/login/")
-	// 登录
-	loginRsp, err := client.R().
-		SetFormData(map[string]string{
-			"username": username,
-			"password": password,
-		}).
-		Post(getBaseUrl() + "/authenticate/")
-	if err != nil {
-		log.Fatalf("登录失败: %+v", err)
-	}
-	if loginRsp.StatusCode() != http.StatusOK {
-		log.Fatalf("登录失败，返回码：%d，返回值：%s", loginRsp.StatusCode(), loginRsp.String())
-	}
-	loginResult := LoginResult{}
-	err = json.Unmarshal(loginRsp.Body(), &loginResult)
-	if err != nil {
-		log.Fatalf("登录失败，序列化接口返回值失败: %+v", err)
-	}
-	if loginResult.Status != 0 {
-		log.Fatalf("登录失败，用户名或密码错误")
-	}
-}
-
-func initRestyClient() *resty.Client {
-	client := resty.New()
-	jar, err := cookiejar.NewCookieJar(client)
-	if err != nil {
-		log.Fatalf("%+v", err)
-	}
-	client.SetCookieJar(jar)
-	return client
 }
 
 func initConfig() (string, string) {
@@ -146,12 +102,12 @@ func initConfig() (string, string) {
 	viper.AddConfigPath(userHomeDir)
 	viper.SetConfigName("ironliferc")
 	viper.SetConfigType("json")
-	viper.SetDefault(baseUrlConfigKey, "http://archery.example.com")
+	viper.SetDefault(ironlife.BaseUrlConfigKey, "http://archery.example.com")
 
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
 			// Config file not found
-			promptUsernamePassword()
+			ironlife.PromptUsernamePassword()
 			err = viper.SafeWriteConfig()
 			if err != nil {
 				log.Fatalf("保存配置文件失败: %+v", err)
@@ -162,10 +118,10 @@ func initConfig() (string, string) {
 		}
 	}
 
-	username := viper.GetString(usernameConfigKey)
-	password := viper.GetString(passwordConfigKey)
+	username := viper.GetString(ironlife.UsernameConfigKey)
+	password := viper.GetString(ironlife.PasswordConfigKey)
 	for username == "" || password == "" {
-		username, password = promptUsernamePassword()
+		username, password = ironlife.PromptUsernamePassword()
 	}
 	err = viper.WriteConfig()
 	if err != nil {
@@ -190,26 +146,4 @@ type ApplyListResult struct {
 		CreateTime           string `json:"create_time"`
 		GroupName            string `json:"group_name"`
 	} `json:"rows"`
-}
-
-type LoginResult struct {
-	Status int    `json:"status"`
-	Msg    string `json:"msg"`
-	Data   string `json:"data"`
-}
-
-func promptUsernamePassword() (username, password string) {
-	emptyCompleter := func(document prompt.Document) []prompt.Suggest {
-		return nil
-	}
-	username = prompt.Input("Archery username? ", emptyCompleter)
-	password = prompt.Input("Archery password? ", emptyCompleter)
-
-	viper.Set(usernameConfigKey, username)
-	viper.Set(passwordConfigKey, password)
-	return
-}
-
-func getBaseUrl() string {
-	return viper.GetString(baseUrlConfigKey)
 }
