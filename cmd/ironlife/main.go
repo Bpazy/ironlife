@@ -25,7 +25,7 @@ func init() {
 func main() {
 	username, password := initConfig()
 
-	ironlife.Login(username, password)
+	ironlife.LoginWithConfiguredBaseUrl(username, password)
 
 	log.Println("初始化完毕，开始 30s 轮训")
 	for {

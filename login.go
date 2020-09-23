@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/viper"
 	"log"
 	"net/http"
+	"strings"
 )
 
 func init() {
@@ -20,18 +21,32 @@ var loginCmd = &cobra.Command{
 	Long:  `Login Archery. Set your username and password`,
 	Run: func(cmd *cobra.Command, args []string) {
 		for {
-			username, password := PromptUsernamePassword2()
-			success, errMsg := Login(username, password)
+			username := Prompt("Archery username? ")
+			password := Prompt("Archery password? ")
+
+			defaultBaseUrl := viper.GetString(BaseUrlConfigKey)
+			if defaultBaseUrl == "" {
+				defaultBaseUrl = "http://archery.example.com"
+			}
+			input := Prompt(fmt.Sprintf("Archery base url(default %s)? ", defaultBaseUrl))
+			if input != "" {
+				defaultBaseUrl = input
+			}
+
+			defaultBaseUrl = strings.TrimRight(CompleteProtocol(defaultBaseUrl), "/")
+			success, errMsg := Login(username, password, defaultBaseUrl)
 			if success {
 				viper.Set(UsernameConfigKey, username)
 				viper.Set(PasswordConfigKey, password)
+				viper.Set(BaseUrlConfigKey, defaultBaseUrl)
 				err := viper.SafeWriteConfig()
 				if err != nil {
 					log.Fatalf("保存配置文件失败: %+v", err)
 				}
+				fmt.Println("Login success")
 				break
 			}
-			fmt.Printf("Login failed. Please reinput username password. Fail message: %s\n", errMsg)
+			fmt.Printf("Login failed. Please check your input. Fail message: %s\n", errMsg)
 		}
 
 	},
@@ -56,11 +71,9 @@ func PromptUsernamePassword() (username, password string) {
 	return
 }
 
-func PromptUsernamePassword2() (username, password string) {
-	fmt.Print("Archery username? ")
-	fmt.Scanln(&username)
-	fmt.Print("Archery password? ")
-	fmt.Scanln(&password)
+func Prompt(prompt string) (input string) {
+	fmt.Print(prompt)
+	fmt.Scanln(&input)
 	return
 }
 
@@ -70,17 +83,16 @@ type LoginResult struct {
 	Data   string `json:"data"`
 }
 
-// Login return login status and error message
-func Login(username string, password string) (bool, string) {
+func Login(username, password, baseurl string) (bool, string) {
 	// 获取基础 Cookie
-	_, _ = RestyClient.R().Get(GetBaseUrl() + "/login/")
+	_, _ = RestyClient.R().Get(baseurl + "/login/")
 	// 登录
 	loginRsp, err := RestyClient.R().
 		SetFormData(map[string]string{
 			"username": username,
 			"password": password,
 		}).
-		Post(GetBaseUrl() + "/authenticate/")
+		Post(baseurl + "/authenticate/")
 	if err != nil {
 		return false, fmt.Sprintf("登录失败: %+v", err)
 	}
@@ -96,6 +108,11 @@ func Login(username string, password string) (bool, string) {
 		return false, "登录失败，用户名或密码错误"
 	}
 	return true, ""
+}
+
+// LoginWithConfiguredBaseUrl return login status and error message
+func LoginWithConfiguredBaseUrl(username string, password string) (bool, string) {
+	return Login(username, password, GetBaseUrl())
 }
 
 func GetBaseUrl() string {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/go-resty/resty/v2"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"ironlife/cookiejar"
 	"log"
 	"os"
@@ -17,6 +18,20 @@ var (
 	}
 	RestyClient = initRestyClient()
 )
+
+func init() {
+	initViper()
+}
+
+func initViper() {
+	userHomeDir, err := os.UserHomeDir()
+	if err != nil {
+		log.Fatalf("获取用户目录失败: %+v", err)
+	}
+	viper.AddConfigPath(userHomeDir)
+	viper.SetConfigName("ironliferc")
+	viper.SetConfigType("json")
+}
 
 func initRestyClient() *resty.Client {
 	client := resty.New()
